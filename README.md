@@ -6,7 +6,7 @@ The camera starts only when you tap **Start camera** in the app. The notificatio
 
 ## Compatibility
 
-This first APK uses Termux's public GitHub development signing key and `com.termux` shared UID. It installs alongside **GitHub-signed Termux only**. It cannot install alongside F-Droid or Play Store Termux; do not uninstall your existing Termux or its data just to try this build. Android 12+ and ARM64 are required.
+The published build uses Termux's public GitHub development signing key and `com.termux` shared UID, so it installs alongside **GitHub-signed Termux only**. This local branch removes the shared UID and uses an authenticated FD handoff. A Pixel 6a (Android 17) with F-Droid Termux captured live frames, but this branch is not yet a release. The cross-UID handoff requires Android 14+; Android 12–13 remain unsupported until an authenticated alternative is implemented. Do not uninstall Termux or its data to try either build.
 
 The public key does not establish trust in an APK: verify the source and artifact before installing. The expected APK signing certificate SHA-256 is `b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faabad48ee5e1`.
 
@@ -14,7 +14,7 @@ The public key does not establish trust in an APK: verify the source and artifac
 
 Every APK and native library in CI is compiled from the source pinned in this repository. The [build workflow](.github/workflows/build.yml) fetches Termux's public key at a pinned commit, verifies its SHA-256, runs fauxdev's tests, builds the APK and Termux-native library, verifies the APK certificate, and uploads both artifacts. No locally compiled library is checked in or repackaged.
 
-Install the CI APK on a device with GitHub-signed Termux. In Termux, extract the matching `camera2termux-termux-arm64.tar.gz`, then install its two files:
+For the published build, install the CI APK on a device with GitHub-signed Termux. This local branch can be built and tested with F-Droid Termux, but has no published artifact. In Termux, extract the matching `camera2termux-termux-arm64.tar.gz`, then install its two files:
 
 ```sh
 tar -xzf camera2termux-termux-arm64.tar.gz
@@ -22,6 +22,6 @@ install -m 755 libfauxdev-termux.so "$PREFIX/lib/libfauxdev-termux.so"
 install -m 755 camera2termux-run "$PREFIX/bin/camera2termux-run"
 ```
 
-Open Camera2Termux, grant camera permission, and tap **Start camera**. Then use `camera2termux-run COMMAND ...` for a native Termux program that opens `/dev/video0` through V4L2. The launcher sets `FAUXDEV_VIDEO_SOCKET` and `LD_PRELOAD`; it does not enable the camera in arbitrary processes. Stop the service when finished.
+Open Camera2Termux, grant camera permission, and tap **Start camera**. Then use `camera2termux-run COMMAND ...` for a native Termux program that opens `/dev/video0` through V4L2. The published launcher uses the app-private socket path; this branch instead hands an already-connected FD to the command and preloads the native shim. It does not enable the camera in arbitrary processes. Stop the service when finished.
 
-PRoot/glibc programs need their own fauxdev build and setup; this ARM64 Bionic library is for native Termux programs. Device-side Termux capture and F-Droid compatibility are not yet validated.
+PRoot/glibc programs need their own fauxdev build and setup; this ARM64 Bionic library is for native Termux programs. The local F-Droid/Pixel result does not establish compatibility across devices or Termux variants.

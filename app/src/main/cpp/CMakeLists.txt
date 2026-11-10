@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 project(camera2termux C)
 set(CMAKE_C_STANDARD 11)
 add_library(fauxdev-camera SHARED
+    camera_socket.c
     ../../../../fauxdev/android/camera_broker.c
     ../../../../fauxdev/android/yuv_rgb.c
     ../../../../fauxdev/src/transport.c)

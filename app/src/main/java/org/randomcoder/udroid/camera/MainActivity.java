@@ -2,15 +2,19 @@ package org.randomcoder.udroid.camera;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 public final class MainActivity extends Activity {
     private static final int CAMERA_REQUEST = 1;
+    private static final int INVENTORY_REQUEST = 2;
     private TextView status;
 
     @Override public void onCreate(Bundle state) {
@@ -20,8 +24,7 @@ public final class MainActivity extends Activity {
         int padding = (int) (24 * getResources().getDisplayMetrics().density);
         layout.setPadding(padding, padding, padding, padding);
         TextView help = new TextView(this);
-        help.setText("Camera2Termux\n\nStart the camera here, then run a native Termux program with camera2termux-run.\n\nSocket: "
-                + new java.io.File(getFilesDir(), "camera.sock").getAbsolutePath());
+        help.setText("Camera2Termux\n\nStart the camera here, then use camera2termux-run in native Termux. Camera sharing is experimental; stop the service when finished.");
         layout.addView(help);
         status = new TextView(this);
         status.setText("Camera is off");
@@ -41,6 +44,14 @@ public final class MainActivity extends Activity {
             status.setText("Camera stopped");
         });
         layout.addView(stop);
+        Button inventory = new Button(this);
+        inventory.setText("Camera inventory");
+        inventory.setOnClickListener(v -> {
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+                showInventory();
+            else requestPermissions(new String[]{Manifest.permission.CAMERA}, INVENTORY_REQUEST);
+        });
+        layout.addView(inventory);
         setContentView(layout);
     }
 
@@ -49,7 +60,27 @@ public final class MainActivity extends Activity {
         if (requestCode == CAMERA_REQUEST) {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startCamera();
             else status.setText("Camera permission denied");
+        } else if (requestCode == INVENTORY_REQUEST) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) showInventory();
+            else status.setText("Camera permission denied");
         }
+    }
+
+    private void showInventory() {
+        String report = CameraBrokerBridge.inventory();
+        TextView text = new TextView(this);
+        text.setText(report);
+        text.setTextIsSelectable(true);
+        text.setTypeface(Typeface.MONOSPACE);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        text.setPadding(padding, padding, padding, padding);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(text);
+        new AlertDialog.Builder(this)
+                .setTitle("Camera inventory")
+                .setView(scroll)
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     private void startCamera() {

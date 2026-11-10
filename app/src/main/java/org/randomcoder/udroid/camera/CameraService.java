@@ -42,7 +42,7 @@ public final class CameraService extends Service {
         Notification notification = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setContentTitle("Camera available to Termux")
-                .setContentText("Camera2Termux is streaming only while this service runs")
+                .setContentText("Camera available while service runs; capture starts when a client streams")
                 .setOngoing(true)
                 .addAction(new Notification.Action.Builder(null, "Stop", stopAction).build())
                 .build();
