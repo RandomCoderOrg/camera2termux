@@ -1,0 +1,14 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+if [ "$#" -eq 0 ]; then
+    echo 'Usage: camera2termux-run COMMAND [ARG...]' >&2
+    exit 2
+fi
+lib="/data/data/com.termux/files/usr/lib/libfauxdev-termux.so"
+if [ ! -r "$lib" ]; then
+    echo "Camera2Termux library missing: $lib" >&2
+    exit 1
+fi
+export FAUXDEV_VIDEO_SOCKET=/data/data/org.randomcoder.camera2termux/files/camera.sock
+export LD_PRELOAD="$lib${LD_PRELOAD:+:$LD_PRELOAD}"
+exec "$@"

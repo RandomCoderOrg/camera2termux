@@ -1,0 +1,10 @@
+.gradle/
+.idea/
+**/build/
+local.properties
+*.apk
+*.so
+*.tar.gz
+termux-testkey.jks
+dist/
+app/.cxx/

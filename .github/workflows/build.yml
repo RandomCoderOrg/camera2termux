@@ -1,0 +1,42 @@
+name: Build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+      - name: Fetch public Termux GitHub signing key
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/termux/termux-app/8629e632fcb95da272221be327db653fb24befe9/app/testkey_untrusted.jks -o termux-testkey.jks
+          echo 'a2ba19f2417de94dd3bdfb6ceece070cdc5f9b492af09cd5900058e860b18c7d  termux-testkey.jks' | sha256sum -c -
+      - name: Build APK and Termux native library from source
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          make -C fauxdev test
+          ./gradlew :app:assembleRelease
+          bash scripts/build-termux.sh
+      - name: Verify APK signing certificate
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | tee dist/signature.txt
+          grep -F 'b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faaabad48ee5e1' dist/signature.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camera2termux-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            dist/camera2termux-termux-arm64.tar.gz
+            dist/signature.txt

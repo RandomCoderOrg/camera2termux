@@ -1,0 +1,3 @@
+[submodule "fauxdev"]
+	path = fauxdev
+	url = https://github.com/RandomCoderOrg/fauxdev.git
