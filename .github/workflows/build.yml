@@ -34,7 +34,7 @@ jobs:
       - name: Verify APK signing certificate
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | tee dist/signature.txt
-          grep -F 'b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faaabad48ee5e1' dist/signature.txt
+          grep -F 'b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faabad48ee5e1' dist/signature.txt
       - uses: actions/upload-artifact@v4
         with:
           name: camera2termux-${{ github.sha }}
