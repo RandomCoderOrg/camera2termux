@@ -24,6 +24,26 @@ install -m 755 camera2termux-run "$PREFIX/bin/camera2termux-run"
 
 Open Camera2Termux, grant camera permission, and tap **Start camera**. Then use `camera2termux-run COMMAND ...` for a native Termux program that opens `/dev/video0` through V4L2. The current launcher hands an already-connected FD to the command and preloads the native shim; earlier releases used an app-private socket path. It does not enable the camera in arbitrary processes. Stop the service when finished.
 
+To preview the stream with low buffering in Termux:X11, install the separate [Termux `ffplay` package](https://github.com/termux/termux-packages/blob/master/x11-packages/ffplay/build.sh), start Termux:X11 and the camera service, then run:
+
+```sh
+pkg install x11-repo
+pkg install ffplay
+export DISPLAY=:0  # use your Termux:X11 display if different
+camera2termux-run ffplay -fflags nobuffer -framedrop -sync ext \
+  -f video4linux2 -input_format rgb24 -video_size 320x240 -framerate 30 /dev/video0
+```
+
+The bridge's raw frames are sensor-oriented. For example, the tested Pixel's rear camera needs a clockwise turn in portrait mode:
+
+```sh
+camera2termux-run ffplay -fflags nobuffer -framedrop -sync ext \
+  -f video4linux2 -input_format rgb24 -video_size 640x480 -framerate 30 \
+  -vf transpose=clock /dev/video0
+```
+
+Use `transpose=cclock` if your image needs the opposite turn, and choose a size your camera exposes. These flags reduce startup buffering and allow late frames to be dropped; they do not increase the camera's capture rate.
+
 PRoot/glibc programs need their own fauxdev build and setup; this ARM64 Bionic library is for native Termux programs. The local F-Droid/Pixel result does not establish compatibility across devices or Termux variants.
 
 ## Studio (Termux:X11)
