@@ -31,14 +31,21 @@ jobs:
           make -C fauxdev test
           ./gradlew :app:assembleRelease
           bash scripts/build-termux.sh
+      - name: Compile-check Studio source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-declarative-dev
+          cmake -S studio -B build/studio-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/studio-host --parallel 2
       - name: Verify APK signing certificate
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | tee dist/signature.txt
           grep -F 'b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faabad48ee5e1' dist/signature.txt
+          cp app/build/outputs/apk/release/app-release.apk dist/camera2termux.apk
       - uses: actions/upload-artifact@v4
         with:
           name: camera2termux-${{ github.sha }}
           path: |
-            app/build/outputs/apk/release/app-release.apk
+            dist/camera2termux.apk
             dist/camera2termux-termux-arm64.tar.gz
             dist/signature.txt
