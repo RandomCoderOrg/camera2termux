@@ -12,12 +12,11 @@ The public key does not establish trust in an APK: verify the source and artifac
 
 ## Build and use
 
-Every APK and native library in CI is compiled from the source pinned in this repository. The [build workflow](.github/workflows/build.yml) fetches Termux's public key at a pinned commit, verifies its SHA-256, runs fauxdev's tests, builds the APK and Termux-native library, compile-checks Studio on Linux, verifies the APK certificate, and uploads only the APK, Termux archive, and signature file. No locally compiled library is checked in or repackaged.
+Every APK and native library in CI is compiled from the source pinned in this repository. The [build workflow](.github/workflows/build.yml) fetches Termux's public key at a pinned commit, verifies its SHA-256, runs fauxdev's tests, builds the APK and four Termux-native libraries, compile-checks Studio on Linux, and verifies the APK certificate. CI uploads one ZIP artifact per architecture; each contains `camera2termux.apk`, `libfauxdev-termux.so`, and `camera2termux-run` at the root. No locally compiled library is checked in or repackaged.
 
-For earlier published builds, use GitHub-signed Termux. Current source and its matching CI artifacts support the authenticated F-Droid Termux handoff on Android 14+. In Termux, extract `camera2termux-termux-arm64.tar.gz`, then install its two files:
+For earlier published builds, use GitHub-signed Termux. Current source and its matching CI artifacts support the authenticated F-Droid Termux handoff on Android 14+. The APK contains ARM64, ARMv7, x86, and x86-64 native libraries. Download the artifact ZIP matching `dpkg --print-architecture` (`aarch64` uses `arm64`), extract it, then install the Termux files from the extracted directory:
 
 ```sh
-tar -xzf camera2termux-termux-arm64.tar.gz
 install -m 755 libfauxdev-termux.so "$PREFIX/lib/libfauxdev-termux.so"
 install -m 755 camera2termux-run "$PREFIX/bin/camera2termux-run"
 ```
@@ -44,7 +43,7 @@ camera2termux-run ffplay -fflags nobuffer -framedrop -sync ext \
 
 Use `transpose=cclock` if your image needs the opposite turn, and choose a size your camera exposes. These flags reduce startup buffering and allow late frames to be dropped; they do not increase the camera's capture rate.
 
-PRoot/glibc programs need their own fauxdev build and setup; this ARM64 Bionic library is for native Termux programs. The local F-Droid/Pixel result does not establish compatibility across devices or Termux variants.
+PRoot/glibc programs need their own fauxdev build and setup; these Bionic libraries are for native Termux programs. The local F-Droid/Pixel result does not establish compatibility across devices, CPU architectures, or Termux variants.
 
 ## Studio (Termux:X11)
 

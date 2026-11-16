@@ -39,13 +39,28 @@ jobs:
           cmake --build build/studio-host --parallel 2
       - name: Verify APK signing certificate
         run: |
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | tee dist/signature.txt
-          grep -F 'b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faabad48ee5e1' dist/signature.txt
-          cp app/build/outputs/apk/release/app-release.apk dist/camera2termux.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk |
+            grep -F 'b6da01480eefd5fbf2cd3771b8d1021ec791304bdd6c4bf41d3faabad48ee5e1'
+          for arch in arm64 arm i686 x86_64; do
+            cp app/build/outputs/apk/release/app-release.apk "dist/$arch/camera2termux.apk"
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: camera2termux-${{ github.sha }}
-          path: |
-            dist/camera2termux.apk
-            dist/camera2termux-termux-arm64.tar.gz
-            dist/signature.txt
+          name: camera2termux-arm64-${{ github.sha }}
+          path: dist/arm64/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camera2termux-arm-${{ github.sha }}
+          path: dist/arm/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camera2termux-i686-${{ github.sha }}
+          path: dist/i686/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camera2termux-x86_64-${{ github.sha }}
+          path: dist/x86_64/
+          if-no-files-found: error
