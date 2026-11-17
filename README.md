@@ -82,7 +82,7 @@ Open the Termux:X11 Android app to see the window. If the server is already runn
 For the tested Pixel 6a acceleration path, build [Mali_Termux-WSI](https://github.com/ZenFox3/Mali_Termux-WSI) in native Termux. Its `make vulkan` target creates `build/libvulkan.so.1`:
 
 ```sh
-pkg install clang make libxcb vulkan-headers
+pkg install clang make git libxcb vulkan-headers
 git clone https://github.com/ZenFox3/Mali_Termux-WSI.git "$HOME/Mali_Termux-WSI"
 make -C "$HOME/Mali_Termux-WSI" vulkan
 test -r "$HOME/Mali_Termux-WSI/build/libvulkan.so.1"
@@ -104,12 +104,15 @@ The WSI library accelerates Qt's Vulkan window presentation, while Studio still 
 
 The [OpenCV example](examples/opencv/) reads 640×480 NV12 from fauxdev, rotates the tested Pixel 6a rear camera clockwise, and draws detections from a 320×320 YOLOv8n ONNX model. It recognizes the model's 80 COCO classes. Inference uses OpenCV's CPU DNN engine; Mali WSI or XFCE can display its window but do not accelerate the model. Only one client can stream the camera at a time, so close Studio first.
 
-Export the model on a desktop with Python, Ultralytics, and ONNX, then copy `yolov8n.onnx` to the phone as `/sdcard/Download/yolov8n-320.onnx`:
+Download the [fixed 320×320 YOLOv8n ONNX export](https://github.com/siromermer/object-detection-benchmark/blob/6e4670fc439888764b71e6b243842468948f4e37/models/yolov8n_320.onnx) directly in Termux. Check its SHA-256 before using it:
 
 ```sh
-python3 -m pip install ultralytics onnx
-python3 -c 'from ultralytics import YOLO; YOLO("yolov8n.pt").export(format="onnx", imgsz=320, simplify=False, opset=12)'
-adb push yolov8n.onnx /sdcard/Download/yolov8n-320.onnx
+pkg install curl
+mkdir -p "$HOME/.cache/camera2termux"
+curl -fL --retry 2 \
+  'https://raw.githubusercontent.com/siromermer/object-detection-benchmark/6e4670fc439888764b71e6b243842468948f4e37/models/yolov8n_320.onnx' \
+  -o "$HOME/.cache/camera2termux/yolov8n-320.onnx"
+echo 'c18257b26cb4231e6318343522044cdd9083d1ac2ac29bcd5027f0ea1f236696  '"$HOME/.cache/camera2termux/yolov8n-320.onnx" | sha256sum -c -
 ```
 
 From this checkout in native Termux, start Camera2Termux's camera service and Termux:X11, then build and launch the example:
@@ -123,7 +126,7 @@ clang++ -O2 -std=c++17 examples/opencv/detect_objects.cpp \
   $(pkg-config --cflags --libs opencv5) -o build/opencv/detect-objects
 export DISPLAY=:0
 camera2termux-run "$PWD/build/opencv/capture-nv12" | \
-  "$PWD/build/opencv/detect-objects" /sdcard/Download/yolov8n-320.onnx \
+  "$PWD/build/opencv/detect-objects" "$HOME/.cache/camera2termux/yolov8n-320.onnx" \
   "$PWD/examples/opencv/coco.names"
 ```
 
