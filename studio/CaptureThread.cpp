@@ -22,6 +22,10 @@
 #include <unistd.h>
 #include <vector>
 
+extern "C" {
+#include <libswscale/swscale.h>
+}
+
 namespace {
 struct Buffer { void *data = MAP_FAILED; size_t length = 0; };
 
@@ -39,6 +43,9 @@ struct Device {
     int fd = -1;
     bool streaming = false;
     QSize size;
+    uint32_t pixelFormat = V4L2_PIX_FMT_RGB24;
+    size_t frameBytes = 0;
+    SwsContext *previewScaler = nullptr;
     int targetFps = 0;
     QStringList cameras, sizes, rates;
     int cameraIndex = 0, sizeIndex = 0, fpsIndex = -1;
@@ -47,6 +54,8 @@ struct Device {
 
     ~Device() { closeDevice(); }
     void closeDevice() {
+        sws_freeContext(previewScaler);
+        previewScaler = nullptr;
         if (fd < 0) return;
         if (streaming) {
             enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -76,7 +85,22 @@ QString cString(const uint8_t *value, size_t capacity) {
                                   int(strnlen(reinterpret_cast<const char *>(value), capacity)));
 }
 
-bool configure(Device &device, int wantedCamera, int wantedSize, int wantedFps, QString &error) {
+QImage convertNv12(const uchar *pixels, QSize source, QSize target, SwsContext *scaler) {
+    QImage image(target, QImage::Format_RGB888);
+    if (image.isNull()) return {};
+    const uint8_t *input[] = {pixels, pixels + size_t(source.width()) * source.height(), nullptr, nullptr};
+    const int inputStride[] = {source.width(), source.width(), 0, 0};
+    uint8_t *output[] = {image.bits(), nullptr, nullptr, nullptr};
+    const int outputStride[] = {int(image.bytesPerLine()), 0, 0, 0};
+    return sws_scale(scaler, input, inputStride, 0, source.height(), output, outputStride) == target.height()
+               ? image : QImage();
+}
+
+bool configure(Device &device, int wantedCamera, int wantedSize, int wantedFps,
+               bool preferNv12, QString &error) {
+    device.cameras.clear();
+    device.sizes.clear();
+    device.rates.clear();
     device.fd = open("/dev/video0", O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (device.fd < 0) { error = systemError(QStringLiteral("Open /dev/video0")); return false; }
     struct v4l2_capability capability = {};
@@ -106,22 +130,29 @@ bool configure(Device &device, int wantedCamera, int wantedSize, int wantedFps, 
         error = systemError(QStringLiteral("Select camera")); return false;
     }
     std::vector<QSize> modes;
-    for (unsigned int i = 0; i < 256; ++i) {
-        struct v4l2_frmsizeenum item = {};
-        item.index = i;
-        item.pixel_format = V4L2_PIX_FMT_RGB24;
-        if (xioctl(device.fd, VIDIOC_ENUM_FRAMESIZES, &item) < 0) {
-            if (errno != EINVAL) error = systemError(QStringLiteral("Enumerate sizes"));
+    for (uint32_t pixelFormat : {V4L2_PIX_FMT_NV12, V4L2_PIX_FMT_RGB24}) {
+        if (!preferNv12 && pixelFormat == V4L2_PIX_FMT_NV12) continue;
+        for (unsigned int i = 0; i < 256; ++i) {
+            struct v4l2_frmsizeenum item = {};
+            item.index = i;
+            item.pixel_format = pixelFormat;
+            if (xioctl(device.fd, VIDIOC_ENUM_FRAMESIZES, &item) < 0) {
+                if (errno != EINVAL) error = systemError(QStringLiteral("Enumerate sizes"));
+                break;
+            }
+            if (item.type != V4L2_FRMSIZE_TYPE_DISCRETE) continue;
+            QSize size(int(item.discrete.width), int(item.discrete.height));
+            if (!size.isValid() || size.width() > 8192 || size.height() > 8192) continue;
+            modes.push_back(size);
+            device.sizes.append(QStringLiteral("%1 × %2").arg(size.width()).arg(size.height()));
+        }
+        if (!error.isEmpty() || !modes.empty()) {
+            device.pixelFormat = pixelFormat;
             break;
         }
-        if (item.type != V4L2_FRMSIZE_TYPE_DISCRETE) continue;
-        QSize size(int(item.discrete.width), int(item.discrete.height));
-        if (!size.isValid() || size.width() > 8192 || size.height() > 8192) continue;
-        modes.push_back(size);
-        device.sizes.append(QStringLiteral("%1 × %2").arg(size.width()).arg(size.height()));
     }
     if (!error.isEmpty()) return false;
-    if (modes.empty()) { error = QStringLiteral("No RGB24 capture sizes are exposed"); return false; }
+    if (modes.empty()) { error = QStringLiteral("No NV12 or RGB24 capture sizes are exposed"); return false; }
     if (wantedSize < 0) {
         wantedSize = 0;
         for (size_t i = 0; i < modes.size(); ++i)
@@ -133,22 +164,35 @@ bool configure(Device &device, int wantedCamera, int wantedSize, int wantedFps, 
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     format.fmt.pix.width = uint32_t(device.size.width());
     format.fmt.pix.height = uint32_t(device.size.height());
-    format.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+    format.fmt.pix.pixelformat = device.pixelFormat;
     if (xioctl(device.fd, VIDIOC_S_FMT, &format) < 0) {
         error = systemError(QStringLiteral("Set capture size")); return false;
     }
-    if (format.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB24 ||
+    device.frameBytes = size_t(device.size.width()) * device.size.height() *
+                        (device.pixelFormat == V4L2_PIX_FMT_NV12 ? 3 : 6) / 2;
+    if (format.fmt.pix.pixelformat != device.pixelFormat ||
         format.fmt.pix.width != uint32_t(device.size.width()) ||
         format.fmt.pix.height != uint32_t(device.size.height()) ||
-        format.fmt.pix.bytesperline != format.fmt.pix.width * 3) {
-        error = QStringLiteral("Camera returned an unsupported RGB24 buffer layout"); return false;
+        format.fmt.pix.bytesperline != format.fmt.pix.width *
+                                     (device.pixelFormat == V4L2_PIX_FMT_NV12 ? 1u : 3u) ||
+        format.fmt.pix.sizeimage != device.frameBytes) {
+        error = QStringLiteral("Camera returned an unsupported buffer layout"); return false;
+    }
+    if (device.pixelFormat == V4L2_PIX_FMT_NV12) {
+        QSize preview = device.size.scaled(QSize(640, 640), Qt::KeepAspectRatio);
+        device.previewScaler = sws_getContext(device.size.width(), device.size.height(), AV_PIX_FMT_NV12,
+                                              preview.width(), preview.height(), AV_PIX_FMT_RGB24,
+                                              SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+        if (!device.previewScaler) {
+            error = QStringLiteral("Could not prepare NV12 preview conversion"); return false;
+        }
     }
 
     std::vector<int> rates;
     for (unsigned int i = 0; i < 256; ++i) {
         struct v4l2_frmivalenum item = {};
         item.index = i;
-        item.pixel_format = V4L2_PIX_FMT_RGB24;
+        item.pixel_format = device.pixelFormat;
         item.width = format.fmt.pix.width;
         item.height = format.fmt.pix.height;
         if (xioctl(device.fd, VIDIOC_ENUM_FRAMEINTERVALS, &item) < 0) {
@@ -201,7 +245,7 @@ bool configure(Device &device, int wantedCamera, int wantedSize, int wantedFps, 
             error = systemError(QStringLiteral("Query capture buffer")); return false;
         }
         if (buffer.length < format.fmt.pix.sizeimage || buffer.length > 64u * 1024u * 1024u) {
-            error = QStringLiteral("Camera returned an invalid RGB24 buffer length"); return false;
+            error = QStringLiteral("Camera returned an invalid buffer length"); return false;
         }
         void *mapping = mmap(nullptr, buffer.length, PROT_READ | PROT_WRITE,
                              MAP_SHARED, device.fd, buffer.m.offset);
@@ -215,6 +259,11 @@ bool configure(Device &device, int wantedCamera, int wantedSize, int wantedFps, 
     }
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (xioctl(device.fd, VIDIOC_STREAMON, &type) < 0) {
+        if (preferNv12 && device.pixelFormat == V4L2_PIX_FMT_NV12 && errno == ENOTTY) {
+            device.closeDevice();
+            error.clear();
+            return configure(device, wantedCamera, wantedSize, wantedFps, false, error);
+        }
         error = systemError(QStringLiteral("Start camera stream")); return false;
     }
     device.streaming = true;
@@ -321,7 +370,8 @@ void CaptureThread::run() {
         QStringList args = {QStringLiteral("-nostdin"), QStringLiteral("-hide_banner"),
             QStringLiteral("-loglevel"), QStringLiteral("error"), QStringLiteral("-n"),
             QStringLiteral("-f"), QStringLiteral("rawvideo"), QStringLiteral("-pixel_format"),
-            QStringLiteral("rgb24"), QStringLiteral("-video_size"),
+            device.pixelFormat == V4L2_PIX_FMT_NV12 ? QStringLiteral("nv12") : QStringLiteral("rgb24"),
+            QStringLiteral("-video_size"),
             QStringLiteral("%1x%2").arg(device.size.width()).arg(device.size.height()),
             QStringLiteral("-framerate"), QString::number(fps),
             QStringLiteral("-use_wallclock_as_timestamps"), QStringLiteral("1"),
@@ -380,7 +430,7 @@ void CaptureThread::run() {
             device.closeDevice();
             emit statusChanged(QStringLiteral("Configuring camera…"), false);
             QString error;
-            if (!configure(device, cameraIndex, sizeIndex, fpsIndex, error)) {
+            if (!configure(device, cameraIndex, sizeIndex, fpsIndex, true, error)) {
                 device.closeDevice();
                 emit statusChanged(error, true);
             } else {
@@ -430,21 +480,36 @@ void CaptureThread::run() {
             device.closeDevice();
             continue;
         }
-        const size_t frameBytes = size_t(device.size.width()) * size_t(device.size.height()) * 3;
+        const size_t frameBytes = device.frameBytes;
         if (buffer.index >= device.buffers.size() || buffer.bytesused < frameBytes ||
             frameBytes > device.buffers[buffer.index].length) {
-            emit statusChanged(QStringLiteral("Camera returned an invalid RGB24 frame"), true);
+            emit statusChanged(QStringLiteral("Camera returned an invalid frame"), true);
             finishRecording();
             device.closeDevice();
             continue;
         }
         const uchar *pixels = static_cast<const uchar *>(device.buffers[buffer.index].data);
-        QImage full(pixels, device.size.width(), device.size.height(),
-                    device.size.width() * 3, QImage::Format_RGB888);
+        QImage full;
+        if (device.pixelFormat == V4L2_PIX_FMT_RGB24)
+            full = QImage(pixels, device.size.width(), device.size.height(),
+                          device.size.width() * 3, QImage::Format_RGB888);
         if (!pendingPhoto.isEmpty()) {
             QString error;
-            QImage photo = outputRotation ? full.transformed(QTransform().rotate(outputRotation)) : full;
-            if (writePhoto(pendingPhoto, photo, error)) emit photoSaved(pendingPhoto);
+            QImage photo = full;
+            if (device.pixelFormat == V4L2_PIX_FMT_NV12) {
+                SwsContext *scaler = sws_getContext(device.size.width(), device.size.height(),
+                                                    AV_PIX_FMT_NV12, device.size.width(),
+                                                    device.size.height(), AV_PIX_FMT_RGB24,
+                                                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                if (scaler) photo = convertNv12(pixels, device.size, device.size, scaler);
+                sws_freeContext(scaler);
+            }
+            if (photo.isNull()) error = QStringLiteral("Could not convert camera frame");
+            else {
+                if (outputRotation) photo = photo.transformed(QTransform().rotate(outputRotation));
+                (void)writePhoto(pendingPhoto, photo, error);
+            }
+            if (error.isEmpty()) emit photoSaved(pendingPhoto);
             else emit statusChanged(QStringLiteral("Photo was not saved: %1").arg(error), true);
             pendingPhoto.clear();
         }
@@ -464,8 +529,16 @@ void CaptureThread::run() {
                 finishRecording();
             }
         }
-        QImage preview = full.scaled(QSize(1280, 720), Qt::KeepAspectRatio,
-                                     Qt::FastTransformation);
+        QImage preview = device.pixelFormat == V4L2_PIX_FMT_NV12 ?
+            convertNv12(pixels, device.size, device.size.scaled(QSize(640, 640), Qt::KeepAspectRatio),
+                        device.previewScaler) :
+            full.scaled(QSize(640, 640), Qt::KeepAspectRatio, Qt::FastTransformation);
+        if (preview.isNull()) {
+            emit statusChanged(QStringLiteral("Could not convert camera preview"), true);
+            finishRecording();
+            device.closeDevice();
+            continue;
+        }
         if (outputRotation) preview = preview.transformed(QTransform().rotate(outputRotation));
         emit frameReady(preview);
         qint64 nowNs = clock.nsecsElapsed();

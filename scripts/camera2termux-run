@@ -4,9 +4,21 @@ if [ "$#" -eq 0 ]; then
     echo 'Usage: camera2termux-run COMMAND [ARG...]' >&2
     exit 2
 fi
-apk=$(/system/bin/pm path org.randomcoder.camera2termux | sed -n '1s/^package://p')
+apk=${CAMERA2TERMUX_APK:-}
 if [ -z "$apk" ]; then
-    echo 'Camera2Termux app is not installed' >&2
+    cached="${PREFIX:-/data/data/com.termux/files/usr}/share/camera2termux/camera2termux.apk"
+    if [ -r "$cached" ]; then
+        apk=$cached
+    else
+        apk=$(/system/bin/pm path org.randomcoder.camera2termux | sed -n '1s/^package://p')
+    fi
+fi
+if [ ! -r "$apk" ]; then
+    echo 'Camera2Termux APK not found; install the matching artifact or set CAMERA2TERMUX_APK' >&2
+    exit 1
+fi
+if [ -w "$apk" ]; then
+    echo 'Camera2Termux APK must be read-only for Android app_process to load it' >&2
     exit 1
 fi
 CLASSPATH="$apk" exec /system/bin/app_process / \

@@ -113,6 +113,9 @@ signals:
 private:
     QString nextPath(const QString &extension) const;
     CaptureThread m_capture;
+    QMutex m_previewMutex;
+    QImage m_latestPreview;
+    bool m_previewQueued = false;
     QProcess m_reportProcess;
     QStringList m_cameras, m_sizes, m_rates;
     int m_cameraIndex = -1, m_sizeIndex = -1, m_fpsIndex = -1, m_targetFps = 0;

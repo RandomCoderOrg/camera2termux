@@ -200,7 +200,7 @@ ApplicationWindow {
                             font.family: "monospace"
                         }
                         Text {
-                            text: "DELIVERED  " + studio.deliveredFps.toFixed(1) + " fps"
+                            text: "CAPTURE  " + studio.deliveredFps.toFixed(1) + " fps"
                             color: window.textPrimary
                             font.pixelSize: 12
                             font.family: "monospace"

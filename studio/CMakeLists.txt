@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
 
 add_executable(camera2termux-studio
     main.cpp
@@ -15,7 +17,7 @@ add_executable(camera2termux-studio
     PreviewItem.cpp
     PreviewItem.h
 )
-target_link_libraries(camera2termux-studio PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+target_link_libraries(camera2termux-studio PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 PkgConfig::SWSCALE)
 target_compile_options(camera2termux-studio PRIVATE -Wall -Wextra -Werror)
 target_compile_definitions(camera2termux-studio PRIVATE STUDIO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 

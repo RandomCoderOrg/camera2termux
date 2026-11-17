@@ -5,9 +5,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QMutexLocker>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QTimer>
 #include <QUrl>
+#include <utility>
 
 CameraEngine::CameraEngine(QObject *parent) : QObject(parent), m_saveFolder(QDir::homePath()) {
     connect(&m_capture, &CaptureThread::configured, this,
@@ -21,7 +24,21 @@ CameraEngine::CameraEngine(QObject *parent) : QObject(parent), m_saveFolder(QDir
         emit optionsChanged();
         emit propertiesChanged();
     });
-    connect(&m_capture, &CaptureThread::frameReady, this, &CameraEngine::frameReady);
+    connect(&m_capture, &CaptureThread::frameReady, this, [this](const QImage &frame) {
+        QMutexLocker lock(&m_previewMutex);
+        m_latestPreview = frame;
+        if (m_previewQueued) return;
+        m_previewQueued = true;
+        QMetaObject::invokeMethod(this, [this] {
+            QImage latest;
+            {
+                QMutexLocker lock(&m_previewMutex);
+                latest = std::move(m_latestPreview);
+                m_previewQueued = false;
+            }
+            emit frameReady(latest);
+        }, Qt::QueuedConnection);
+    }, Qt::DirectConnection);
     connect(&m_capture, &CaptureThread::deliveredFpsChanged, this, [this](double fps) {
         m_deliveredFps = fps;
         emit deliveredFpsChanged();
@@ -164,6 +181,10 @@ void CameraEngine::refreshCamera2Report() {
     if (m_reportProcess.state() != QProcess::NotRunning) return;
     m_camera2Report = QStringLiteral("Loading the available Camera2 report…");
     emit camera2ReportChanged();
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.remove(QStringLiteral("LD_LIBRARY_PATH"));
+    environment.remove(QStringLiteral("LD_PRELOAD"));
+    m_reportProcess.setProcessEnvironment(environment);
     m_reportProcess.start(QStringLiteral("camera2termux-run"),
                           {QStringLiteral("fauxdev-camera-info")});
 }
