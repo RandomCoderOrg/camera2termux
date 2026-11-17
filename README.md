@@ -59,26 +59,46 @@ PRoot/glibc programs need their own fauxdev build and setup; these Bionic librar
 
 The experimental Linux desktop Studio uses the same `/dev/video0` stream for its live preview, PNG photos, and silent H.264 MP4 recording. Camera, NV12 capture size (RGB24 fallback), and fixed target FPS choices come from V4L2 enumeration. The on-screen capture FPS counts frames received and processed by Studio, not frames presented by Termux:X11. Photos and video use the full selected capture size; only the preview is scaled. Studio uses Camera2's reported sensor orientation for its portrait-default output and offers a manual quarter-turn correction that applies to preview, PNG, and MP4. Raw V4L2 frames remain in sensor orientation; Studio does not infer the physical phone rotation from Termux:X11. The Properties pane shows working V4L2 values and an available Camera2 report, not a complete Camera2 metadata browser.
 
-Studio is currently **source-build-only in native Termux**. The APK/NDK CI artifact does not contain a locally compiled Studio binary. Install Termux:X11, Qt 6 Quick/Controls, CMake, a C++ compiler, and FFmpeg with `libx264`, then build from this checkout:
+Studio is currently **source-build-only in native Termux**. The APK/NDK CI artifact does not contain a locally compiled Studio binary. Install the Termux:X11 Android app, then install the build and runtime packages in native Termux from this checkout:
 
 ```sh
 pkg install x11-repo
-pkg install qt6-qtbase qt6-qtdeclarative cmake clang ffmpeg
+pkg install termux-x11-nightly qt6-qtbase qt6-qtdeclarative cmake clang pkg-config ffmpeg
+pkg-config --modversion Qt6Quick libswscale
+ffmpeg -hide_banner -encoders | grep libx264
 bash scripts/build-studio-termux.sh
 ```
 
-Start Camera2Termux's camera service and Termux:X11, set `DISPLAY` to the active X11 display, then run `camera2termux-run camera2termux-studio`. Choose an existing writable save folder in Studio. MP4 is first written as a `.part` file and moved into place only after FFmpeg exits successfully. Recording drops whole frames if the encoder cannot keep up; the readout shows the drop count. On the tested Pixel 6a, 640×480 recording encoded about 11 frames/s while the camera delivered about 30 frames/s; a smaller size recorded more smoothly. No audio is recorded. Stop the Android camera service when finished.
-
-On the tested Pixel 6a, the installed `Mali_Termux-WSI` Vulkan stack improved visible Termux:X11 presentation. Launch Studio with its Vulkan library after `camera2termux-run` hands off the camera FD (Android's `app_process` strips `LD_*` variables before that handoff):
+The version checks confirm Qt Quick, libswscale, and the H.264 encoder that Studio needs. If one fails, resolve that package before building. Start Camera2Termux's camera service in its Android app, then start the X server and Studio in Termux:
 
 ```sh
+termux-x11 :0 &
+export DISPLAY=:0
+camera2termux-run camera2termux-studio
+```
+
+Open the Termux:X11 Android app to see the window. If the server is already running, use its existing display instead of starting another. Choose an existing writable save folder in Studio. MP4 is first written as a `.part` file and moved into place only after FFmpeg exits successfully. Recording drops whole frames if the encoder cannot keep up; the readout shows the drop count. On the tested Pixel 6a, 640×480 recording encoded about 11 frames/s while the camera delivered about 30 frames/s; a smaller size recorded more smoothly. No audio is recorded. Stop the Android camera service when finished.
+
+For the tested Pixel 6a acceleration path, build [Mali_Termux-WSI](https://github.com/ZenFox3/Mali_Termux-WSI) in native Termux. Its `make vulkan` target creates `build/libvulkan.so.1`:
+
+```sh
+pkg install clang make libxcb vulkan-headers
+git clone https://github.com/ZenFox3/Mali_Termux-WSI.git "$HOME/Mali_Termux-WSI"
+make -C "$HOME/Mali_Termux-WSI" vulkan
+test -r "$HOME/Mali_Termux-WSI/build/libvulkan.so.1"
+```
+
+With the camera service and Termux:X11 running, launch Studio with its Vulkan library after `camera2termux-run` hands off the camera FD (Android's `app_process` strips `LD_*` variables before that handoff):
+
+```sh
+export DISPLAY=:0
 camera2termux-run env \
   LD_LIBRARY_PATH="$HOME/Mali_Termux-WSI/build:$PREFIX/lib" \
   LD_PRELOAD="/system/lib64/libbinder_ndk.so:$PREFIX/lib/libfauxdev-termux.so" \
-  QSG_RHI_BACKEND=vulkan camera2termux-studio
+  QT_QPA_PLATFORM=xcb QSG_RHI_BACKEND=vulkan camera2termux-studio
 ```
 
-This is specific to that installed Mali WSI stack. Check visible output and the active renderer before treating it as a working hardware path.
+The WSI library accelerates Qt's Vulkan window presentation, while Studio still reads the camera through fauxdev and converts NV12 for the preview. This is specific to that installed Mali WSI stack. Check visible output and the active renderer before treating it as a working hardware path.
 
 ## OpenCV object detection (Termux:X11)
 
